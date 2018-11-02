@@ -3,6 +3,53 @@ from skimage.util.shape import view_as_windows
 from glob import iglob
 import fnmatch
 from numpy.lib.stride_tricks import as_strided
+from matplotlib.pyplot import imread
+import csv
+import matplotlib.pyplot as plt
+from PIL import * 
+from config import *
+
+import numpy as np
+
+def localize_mitosis(img,pathcsv):
+    coord_mitosis = []
+    with open(pathcsv, 'rt', encoding='utf8') as csvfile:
+        spamreader = csv.reader(csvfile, delimiter=',')
+        for row in spamreader:
+            coord_mitosis.append(np.array([int(row[0]),int(row[1])]))
+    return coord_mitosis
+
+def localize_mitosis_patches(pathcsv,return_img=False):
+    coord_mitosis = []
+    mitotic_patches = []
+    num_case = int(pathcsv.split('/')[-2])
+    str_case = pathcsv.split('/')[-2]
+    str_hpf  = pathcsv.split('/')[-1].split('.csv')[0]
+    with open(pathcsv, 'rt', encoding='utf8') as csvfile:
+        spamreader = csv.reader(csvfile, delimiter=',')
+        for row in spamreader:
+            coord_mitosis.append(np.array([int(row[0]),int(row[1])]))
+    if num_case <= 14:
+        part = '1'
+    if (num_case > 14) and (num_case <= 33) :
+        part = '2'    
+    if (num_case > 33) :
+        part = '3'
+    path_img = PREFIX_IMGS + part + '/' + str_case + '/' + str_hpf + '.tif'
+    sampl_img = np.array(Image.open(path_img))
+    for item in coord_mitosis:
+        anchor_x, anchor_y = item[0]-31,  item[1]-31
+        if anchor_x < 0:  
+            anchor_x = 0
+        if anchor_y < 0:
+            anchor_y = 0          
+        cur_patch =sampl_img[anchor_x:anchor_x+63,anchor_y:anchor_y+63,:] 
+        mitotic_patches.append(cur_patch)
+    print("Computed coords and patches for " + path_img ) 
+    if return_img: 
+        return coord_mitosis,mitotic_patches,sampl_img
+    else:
+        return coord_mitosis,mitotic_patches
 
 def extract_patches(arr, patch_shape=8, extraction_step=1):
     """Extracts patches of any n-dimensional array in place using strides.
@@ -85,7 +132,7 @@ def compute_corner_patches(img_size, stride_x, stride_y):
     return np.array(array_corners),total_p_x,total_p_y
 
 
-
+#This function is not mine, is from a course from Radboud University Medical Center, super handy!
 # Define a function to read images from disk and convert them to xyc format in a desire output range.
 def load_image(input_path, range_min=0, range_max=1):
     
