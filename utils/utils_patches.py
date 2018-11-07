@@ -1,5 +1,9 @@
 import numbers
 from skimage.util.shape import view_as_windows
+import glob
+from sklearn.preprocessing import OneHotEncoder
+import random
+
 from glob import iglob
 import fnmatch
 from numpy.lib.stride_tricks import as_strided
@@ -8,8 +12,75 @@ import csv
 import matplotlib.pyplot as plt
 from PIL import * 
 from config import *
-
 import numpy as np
+
+import time
+
+
+##Building the generators for balanced negative-positive batches
+class simplePatchGenerator(object):
+    def __init__(self, input_dir, batch_size, img_shape = (63,63,3), augmentation_fn=None):
+        print("Building generator for patches in " + input_dir)
+        # Params
+        self.input_dir = input_dir  # path to patches in glob format
+        self.batch_size = batch_size  # number of patches per batch
+        self.augmentation_fn = augmentation_fn  # augmentation function
+        self.img_shape = img_shape
+        self.list_positive = glob.glob(input_dir + 'mitosis/*.png')
+        self.list_negative = glob.glob(input_dir + 'non_mitosis/*.png')
+        self.encoder = OneHotEncoder(sparse=False)
+        
+
+        self.n_samples = len(self.list_negative +self.list_positive)
+        self.n_batches = self.n_samples // self.batch_size
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return self.next()
+
+    def __len__(self):
+        # Provide length in number of batches
+        return self.n_batches
+
+    def next(self):
+        # Build a mini-batch
+        paths_negatives = random.sample(self.list_negative,self.batch_size//2) #self.df.loc[self.df['label'] == 0, :].sample(self.batch_size//2, replace = True)
+        paths_positives = random.sample(self.list_positive,self.batch_size//2) #self.df.loc[self.df['label'] == 0, :].sample(self.batch_size//2, replace = True)
+        images = []
+        labels = np.concatenate((np.zeros((self.batch_size//2,1)), np.ones((self.batch_size//2,1))),axis=0)
+        label_idx = 0
+        for pathimg in paths_negatives+paths_positives:
+            try:
+                # Read image path
+                # Read data and label
+                image = load_image(pathimg)
+                # Data augmentation
+                if self.augmentation_fn:
+                    image = self.augmentation_fn(image)
+
+                # Append
+                if image.shape != self.img_shape:
+                    images.append(images[-1])
+                    labels[label_idx] = labels[label_idx-1]
+                else:
+                    images.append(image)
+                label_idx+=1
+            except Exception as e:
+                print('Failed reading img {idx}...'.format(idx=pathimg))
+                print(e)
+            label_idx += 1
+            
+        batch_x = np.stack(images).astype('float32')
+        batch_y = np.stack(labels).astype('float32')
+
+        return batch_x, self.encoder.fit_transform(batch_y)#batch_y
+
+
+def pepe(caca):
+    print(caca)
+    return
+
 
 def localize_mitosis(img,pathcsv):
     coord_mitosis = []
@@ -155,3 +226,62 @@ def plot_image(images, images_per_row=8):
             ax.axis('off')            
             c += 1
     plt.show()
+
+    
+
+
+
+def save_heatmap(fname,cur_slide, coordinates, boxes_to_draw):
+    fig = plt.figure(frameon=False)
+    fig.set_size_inches(20,20)
+    ax = plt.Axes(fig, [0., 0., 1., 1.])
+    ax.set_axis_off()
+    fig.add_axes(ax)
+    ax.imshow(cur_slide) 
+
+    for item in coordinates[0:boxes_to_draw]:
+        # Create a Rectangle patch
+        rect = patches.Rectangle((item[1],item[0]),10,10,linewidth=2,edgecolor='r',facecolor='none')
+        # Add the patch to the Axes
+        ax.add_patch(rect)
+    #fig.savefig(, 300)
+    fig.savefig(fname, bbox_inches='tight', pad_inches=0)
+    return
+
+
+def compute_probs_sliding_window_v2(model_mitosis,ex_img):
+    probs_row = []
+    stride_x,stride_y = 63,63
+    start = time.time()
+    for i in range(ex_img.shape[0]-stride_x): #This is a nice use case of list comprehension, for GPU mem limists is not possible to use only one line ranging also in the rows dim
+        cur_batch_row = np.squeeze(np.array([[ex_img[i:i+63,j:j+63,:] for j in range(ex_img.shape[1]-stride_y)]]))        
+        probs_row.append(model_mitosis.predict_proba(cur_batch_row,batch_size=cur_batch_row.shape[0]))
+    end = time.time()
+    print(str(i)+" iterations - Time elapsed on gpu + comprehension :" + str(end - start))
+    return (np.array(probs_row))
+
+
+
+
+# Sliding window CNN approach using list-comprehensions to speed up a little bit
+def compute_probs_sliding_window_v1(model_mitosis,ex_img):
+    kk_r = extract_patches(ex_img[:,:,0], patch_shape=63, extraction_step=1)[0]
+    kk_g = extract_patches(ex_img[:,:,1], patch_shape=63, extraction_step=1)[0]
+    kk_b = extract_patches(ex_img[:,:,2], patch_shape=63, extraction_step=1)[0]
+    probs_row = []
+    for i in range(kk_r.shape[0]): #This is a nice use case of list comprehension, for GPU mem limits is not possible to use only one line, i.e., ranging also in the rows dim
+        cur_thing_r = np.squeeze(np.array([[kk_r[i,j,:,:] for j in range(kk_r.shape[1])]]))
+        cur_thing_g = np.squeeze(np.array([[kk_g[i,j,:,:] for j in range(kk_r.shape[1])]]))
+        cur_thing_b = np.squeeze(np.array([[kk_b[i,j,:,:] for j in range(kk_r.shape[1])]]))
+        start = time.time()
+        cur_thing = np.stack((cur_thing_r, cur_thing_g, cur_thing_b),axis=-1)
+        #start = time.time()
+        probs_row.append(model_mitosis.predict_proba(cur_thing,batch_size=cur_thing.shape[0]))
+        #probs_row.append(model_mitosis.predict_proba(np.concatenate((cur_thing_sss,cur_thing_sss),axis=0)))
+        
+        #print("Time elapsed on gpu :" + str(end - start))
+        if i%100== 0:
+            print("Computing probs for row " + str(i))
+        end = time.time()
+    return(np.array(probs_row))
+
