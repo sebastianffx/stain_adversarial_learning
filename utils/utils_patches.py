@@ -77,11 +77,6 @@ class simplePatchGenerator(object):
         return batch_x, self.encoder.fit_transform(batch_y)#batch_y
 
 
-def pepe(caca):
-    print(caca)
-    return
-
-
 def localize_mitosis(img,pathcsv):
     coord_mitosis = []
     with open(pathcsv, 'rt', encoding='utf8') as csvfile:

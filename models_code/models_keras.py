@@ -21,12 +21,12 @@ import random
 
 
 #Definition of the CNN model
-kernel_size = (4,4)
+kernel_size = (4,4) #Should be this in config?
 input_shape = (63,63,3)
 nb_filters = 16 
 pool_size = 2
 def mitosis_model(lr,clip_norm):
-    model_mitosis = Sequential() #Is sequential because all the 
+    model_mitosis = Sequential() #All outputs depend only of the previous layer
     #Block 0
     model_mitosis.add(Convolution2D(nb_filters, (kernel_size[0], kernel_size[1]),
                             padding='valid',
