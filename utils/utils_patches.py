@@ -3,7 +3,7 @@ from skimage.util.shape import view_as_windows
 import glob
 from sklearn.preprocessing import OneHotEncoder
 import random
-
+import sys
 from glob import iglob
 import fnmatch
 from numpy.lib.stride_tricks import as_strided
@@ -11,6 +11,8 @@ from matplotlib.pyplot import imread
 import csv
 import matplotlib.pyplot as plt
 from PIL import * 
+sys.path.insert(0, '/home/sebastian/local_experiments/staining/utils/')
+import config
 from config import *
 import numpy as np
 
@@ -101,7 +103,7 @@ def localize_mitosis_patches(pathcsv,return_img=False):
         part = '2'    
     if (num_case > 33) :
         part = '3'
-    path_img = PREFIX_IMGS + part + '/' + str_case + '/' + str_hpf + '.tif'
+    path_img = config.PREFIX_IMGS + part + '/' + str_case + '/' + str_hpf + '.tif'
     sampl_img = np.array(Image.open(path_img))
     for item in coord_mitosis:
         anchor_x, anchor_y = item[0]-31,  item[1]-31
@@ -204,11 +206,11 @@ def load_image(input_path, range_min=0, range_max=1):
     
     # Read image data (x, y, c) [0, 255]
     image = imread(input_path)
-    
-    # Convert image to the correct range
-    image = (image / 255) * (range_max - range_min) + range_min 
-
+    if np.max(image.flatten()) > 1:
+        # Convert image to the correct range
+        image = (image / 255) * (range_max - range_min) + range_min 
     return image
+
 
 # Define a function to plot a batch or list of image patches in a grid
 def plot_image(images, images_per_row=8):
@@ -221,9 +223,6 @@ def plot_image(images, images_per_row=8):
             ax.axis('off')            
             c += 1
     plt.show()
-
-    
-
 
 
 def save_heatmap(fname,cur_slide, coordinates, boxes_to_draw):
@@ -249,7 +248,7 @@ def compute_probs_sliding_window_v2(model_mitosis,ex_img):
     stride_x,stride_y = 63,63
     start = time.time()
     for i in range(ex_img.shape[0]-stride_x): #This is a nice use case of list comprehension, for GPU mem limists is not possible to use only one line ranging also in the rows dim
-        cur_batch_row = np.squeeze(np.array([[ex_img[i:i+63,j:j+63,:] for j in range(ex_img.shape[1]-stride_y)]]))        
+        cur_batch_row = np.squeeze(np.array([[ex_img[i:i+63,j:j+63,:] for j in range(ex_img.shape[1]-stride_y)]]))       
         probs_row.append(model_mitosis.predict_proba(cur_batch_row,batch_size=cur_batch_row.shape[0]))
     end = time.time()
     print(str(i)+" iterations - Time elapsed on gpu + comprehension :" + str(end - start))
@@ -279,4 +278,3 @@ def compute_probs_sliding_window_v1(model_mitosis,ex_img):
             print("Computing probs for row " + str(i))
         end = time.time()
     return(np.array(probs_row))
-

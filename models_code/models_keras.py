@@ -70,3 +70,4 @@ def mitosis_model(lr,clip_norm):
               optimizer=adam_opt ,
               metrics=['mae','acc'])
     return model_mitosis
+
