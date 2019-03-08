@@ -2,11 +2,11 @@ from sklearn.metrics import *
 from PIL import * 
 import glob
 import sys
-sys.path.insert(0, '/home/sebastian/local_experiments/staining/utils/')
 from utils_patches import *
 
 #This function returns the best threshold found for given model in the validation path provided 
 def evaluate_model_validation(model_mitosis,validation_images_path,perf_meassure='f1', func_model=False):
+
     list_val_imgs = glob.glob(validation_images_path + 'mitosis/' +  '**.png')
     val_batches_paths = [list_val_imgs[i:i+64] for i in range(0,len(list_val_imgs),64)]
     list_neg_test_imgs = glob.glob(validation_images_path + 'non_mitosis/' +'**.png')
@@ -23,9 +23,8 @@ def evaluate_model_validation(model_mitosis,validation_images_path,perf_meassure
             probabilites.append(model_mitosis.predict(np.array(images_batch))[0])
         else:
             probabilites.append(model_mitosis.predict_proba(np.array(images_batch)))
-        #print(model_mitosis.predict_classes(np.array(test_batches_paths[0])))
+
     concat_probs = np.array([j for i in probabilites for j in i])
-    
     #Computing probabilities for non mitotic patches
     neg_probabilites = []
     for batch in val_neg_batches_paths:
@@ -82,7 +81,6 @@ def evaluate_model_test(model_mitosis,path_test_images,path_neg_test_images,best
             probabilites.append(model_mitosis.predict(np.array(images_batch))[0])  
         else:
             probabilites.append(model_mitosis.predict_proba(np.array(images_batch)))
-        #print(model_mitosis.predict_classes(np.array(test_batches_paths[0])))
     concat_probs = np.array([j for i in probabilites for j in i])
     #print(len(concat_probs))
     total_fp  = 0 
