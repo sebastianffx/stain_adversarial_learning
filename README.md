@@ -11,5 +11,5 @@ Gleason grading using the Zurich prostate TMA dataset:
 * Separate the patches folder using patches_partitions.txt
 
 Multi-organ nuclei segmentation of Kumar patch dataset:
-* Have in your local storage the nuclei images with their respective nuclei masks ([TUPAC dataset](https://monuseg.grand-challenge.org/Data/))
+* Have in your local storage the nuclei images with their respective nuclei masks ([Multi-organ nuclei segmentation](https://monuseg.grand-challenge.org/Data/))
 
