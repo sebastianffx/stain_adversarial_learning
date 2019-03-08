@@ -1,4 +1,5 @@
-This project investigates the interplay between color augmentation and adversarial feature learning to address the variability in histopathology images.
+This project investigates the interplay between color augmentation and adversarial feature learning to address the variability in tissue preparation methods that makes substantial changes in the appearence of digitized images and that hampers performance of deep learning networks when applied to computational pathology tasks.
+
 Here are the steps to reproduce each set of experiments:
 
 Mitosis detection in TUPAC:
