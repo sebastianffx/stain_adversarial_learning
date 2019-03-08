@@ -1,4 +1,4 @@
-This project investigates the interplay between color augmentation and adversarial feature learning to address the variability in tissue preparation methods that make substantial changes in the appearance of digitized images and that hampers the performance of deep learning networks when applied to computational pathology tasks.
+This project investigates the interplay between color augmentation and adversarial feature learning to address the variability in tissue preparation methods that make substantial changes in the appearance of  digitized histology images and that hampers the performance of deep learning networks when applied to computational pathology tasks.
 
 For this purpose, we design a domain adversarial framework in which hard-color augmentation is used in conjunction with domain invariant training of the networks. We test our approach in three open access datasets and provide the steps and code to reproduce each result reported in the paper.
 
