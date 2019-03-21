@@ -9,7 +9,7 @@ Mitosis detection in TUPAC:
 * Create the patches using the coordinates located in patches_coordinates.txt
 * Run either baseline.py or dann_experiment.py
 
-Gleason grading using the Zurich prostate TMA dataset:
+Gleason grading using the Zurich prostate TMA dataset and TCGA diagnostic WSI:
 * Have in your local path the ([TMA images folder](https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/OCYCMP)) 
 * Separate the patches folder using patches_partitions.txt
 
