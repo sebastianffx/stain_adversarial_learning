@@ -11,12 +11,24 @@ from matplotlib.pyplot import imread
 import csv
 import matplotlib.pyplot as plt
 from PIL import * 
-sys.path.insert(0, '/home/sebastian/local_experiments/staining/utils/')
+sys.path.insert(0, '/home/sebastian/stain_adversarial_learning/utils/')
 import config
 from config import *
 import numpy as np
-
+from keras.preprocessing.image import ImageDataGenerator, random_zoom
 import time
+
+def center_cropping(image,target_size):
+    width = image.shape[0]
+    center = int(width / 2)
+    #target_size = 224
+    target_side = int(target_size/2)
+    center_crop = image[center-target_side:center+target_side, center-target_side:center+target_side,:]
+    #center_crop.shape
+    #plt.imshow(center_crop)
+    return center_crop
+
+
 
 def color_augment_patches(patch):
     a_c = np.random.uniform(0.9,1.1,3)
@@ -37,6 +49,7 @@ def color_augment_patches(patch):
     #img_orig.save('/home/sebastian/Documents/svn/papers/2018/StainingNormalization_Sebastian/images/example_orig_2.png')
     return augmented_patch
 
+
 ##Building the generators for balanced negative-positive batches
 class simplePatchGeneratorMitosis(object):
     def __init__(self, input_dir, batch_size, img_shape = (63,63,3), augmentation_fn=None,
@@ -55,6 +68,16 @@ class simplePatchGeneratorMitosis(object):
         self.balance_batch = balance_batch
         self.n_samples = len(self.list_negative +self.list_positive)
         self.n_batches = self.n_samples // self.batch_size
+        self.domains_dict_train = {1: 0, 2: 1, 3: 8, 4: 2, 5: 9, 6: 3, 7: 10, 8: 4, 9: 5, 11: 6, 12: 7, 13: 11,
+                           14: 12, 15: 13, 16: 14, 17: 15, 18: 16, 19: 17, 21: 18, 22: 19, 23: 20,
+                           24: 21, 25: 22, 27: 23, 28: 24, 29: 25, 30: 26, 31: 27, 32: 28,
+                           33: 29, 34: 30, 36: 31, 37: 32, 39: 33, 40: 34, 41: 35, 42: 36,
+                           43: 37, 44: 38, 45: 39, 46: 40, 47: 41, 49: 42, 50: 43, 51: 44,
+                           52: 45, 54: 46, 55: 47, 56: 48, 57: 49, 58: 50, 59: 51, 60: 52,
+                           61: 53, 62: 54, 63: 55, 64: 56, 65: 57, 66: 58, 67: 59, 68: 60,
+                           69: 61, 70: 62, 71: 63, 72: 64, 73: 65}
+        self.other_encoder = OneHotEncoder(sparse=False,n_values=len(self.domains_dict_train))
+
     def __iter__(self):
         return self
 
@@ -70,18 +93,29 @@ class simplePatchGeneratorMitosis(object):
         paths_negatives = random.sample(self.list_negative,self.batch_size//2) #self.df.loc[self.df['label'] == 0, :].sample(self.batch_size//2, replace = True)
         paths_positives = random.sample(self.list_positive,self.batch_size//2) #self.df.loc[self.df['label'] == 0, :].sample(self.batch_size//2, replace = True)
         #print(len(paths_negatives),len(paths_positives))
-        images = []        
+        images = []   
         #print(labels.shape)
         paths = []
         label_idx = 0
+        labels_slides = []
         if self.balance_batch: #The balance is on the mitotic/non-mitotic figures
             labels = np.concatenate((np.zeros((self.batch_size//2,1)), np.ones((self.batch_size//2,1))),axis=0)
             for pathimg in paths_negatives+paths_positives:
+                domain = int(pathimg.split('/')[-1].split('_')[0])
+                cur_label = self.domains_dict_train[domain]
                 #paths.append(pathimg)
                 try:
                     # Read image path
                     # Read data and label
-                    image = load_image(pathimg) 
+                    image = load_image(pathimg)
+                    img_gen = ImageDataGenerator()
+                    transform_parameters = {'flip_horizontal':bool(random.getrandbits(1)),'flip_vertical':bool(random.getrandbits(1)),
+                                            'theta':random.choice([0,90, 180, 270])}
+
+                    image = img_gen.apply_transform(x= image,transform_parameters=transform_parameters)
+                    img_zoom_tuple = random.choice([(1,1),(1.1,1.1), (0.9,0.9), (0.8,0.8)])
+                    image = random_zoom(image, img_zoom_tuple, row_axis=0, col_axis=1, channel_axis=2, fill_mode='reflect', cval=0.0, interpolation_order=4)
+ 
                     # Data augmentation
                     if self.augmentation_fn:
                         image = self.augmentation_fn(image)
@@ -93,6 +127,7 @@ class simplePatchGeneratorMitosis(object):
                         labels_slides[label_idx] = labels[label_idx-1]
                     else:
                         images.append(image)
+                        labels_slides.append(cur_label)
                     label_idx+=1
                 except Exception as e:
                     print('Failed reading img {idx}...'.format(idx=pathimg))
@@ -101,33 +136,29 @@ class simplePatchGeneratorMitosis(object):
 
             batch_x = np.stack(images).astype('float32')
             batch_y = np.stack(labels).astype('float32')
-            return batch_x, self.encoder.fit_transform(batch_y)
+            batch_y_slides = np.stack(labels_slides).astype('float32')
+            return batch_x, [self.encoder.fit_transform(batch_y),self.other_encoder.fit_transform(np.array(batch_y_slides).reshape(-1,1))]
 
 
 ##Building the generators for balanced negative-positive batches
-class simplePatchGenerator(object):
-    def __init__(self, input_dir, batch_size, img_shape = (63,63,3), augmentation_fn=None,
-                 return_slide_num = None, only_domain=False, balance_batch=False):
-        print("Building generator for patches in " + input_dir)
+class simplePatchGeneratorTCGA(object):
+    def __init__(self, input_dir, batch_size, img_shape = (224,224,3), augmentation_fn=None):
+        print("Building base TCGA generator for patches in " + input_dir)
         # Params
-
         self.input_dir = input_dir  # path to patches in glob format
         self.batch_size = batch_size  # number of patches per batch
         self.augmentation_fn = augmentation_fn  # augmentation function
         self.img_shape = img_shape
-        self.only_domain = only_domain
-        self.list_positive = glob.glob(input_dir + 'mitosis/*.png')
-        self.list_negative = glob.glob(input_dir + 'non_mitosis/*.png')
+        self.list_positive = glob.glob(input_dir + 'GP3/*.png')
+        self.list_negative = glob.glob(input_dir + 'GP4/*.png')
         self.encoder = OneHotEncoder(sparse=False,n_values=2)
-        self.other_encoder = OneHotEncoder(sparse=False,n_values=8)
-        self.balance_batch = balance_batch
-        #if self.only_domain:
-        #    self.domains_dict_train = {1:0,2:1,4:2,6:3,8:4,9:5,11:6,12:7}
-        self.domains_dict_train = {1:0,2:1,4:2,6:3,8:4,9:5,11:6,12:7}
-        self.return_slide_num = return_slide_num
-
         self.n_samples = len(self.list_negative +self.list_positive)
         self.n_batches = self.n_samples // self.batch_size
+        self.domains_dict_train = {'H9':0,'HI':1,'J4':2,'M7':3,'QU':4,'KK':5, 
+                                   '2A':6, 'EJ':7, 'WW':8, 'XJ':9, 'XK':10,
+                                   'ZT80':11, 'V1':12,'FC':13,'VP':14,'G9':15} 
+        self.other_encoder = OneHotEncoder(sparse=False,n_values=len(self.domains_dict_train))
+        #print(len(self.domains_dict_train))
     def __iter__(self):
         return self
 
@@ -140,109 +171,53 @@ class simplePatchGenerator(object):
 
     def next(self):
         # Build a mini-batch
-        paths_negatives = random.sample(self.list_negative,self.batch_size//2) #self.df.loc[self.df['label'] == 0, :].sample(self.batch_size//2, replace = True)
-        paths_positives = random.sample(self.list_positive,self.batch_size//2) #self.df.loc[self.df['label'] == 0, :].sample(self.batch_size//2, replace = True)
+        paths_negatives = random.sample(self.list_negative,self.batch_size//2) 
+        paths_positives = random.sample(self.list_positive,self.batch_size//2) 
         #print(len(paths_negatives),len(paths_positives))
         images = []
-        labels_slides = []
-        
         #print(labels.shape)
         paths = []
+        labels_slides = []
         label_idx = 0
-        if not self.balance_batch: #The balance is on the centers not             
-            labels = np.concatenate((np.zeros((self.batch_size//2,1)), np.ones((self.batch_size//2,1))),axis=0)
-            for pathimg in paths_negatives+paths_positives:
-                try:
-                    # Read image path
-                    # Read data and label
-                    image = load_image(pathimg) 
-                    # Data augmentation
-                    if self.augmentation_fn:
-                        image = self.augmentation_fn(image)
+        labels = np.concatenate((np.zeros((self.batch_size//2,1)), np.ones((self.batch_size//2,1))),axis=0)
+        for pathimg in paths_negatives+paths_positives:
+            #paths.append(pathimg)
+            try:
+                # Read image path
+                # Read data and label
+                cur_label = self.domains_dict_train[pathimg.split('/')[-1].split('-')[1]]
+                image = load_image(pathimg)
+                image = center_cropping(image,target_size = self.img_shape[0])
+                img_gen = ImageDataGenerator()
+                transform_parameters = {'flip_horizontal':bool(random.getrandbits(1)),'flip_vertical':bool(random.getrandbits(1)),
+                                        'theta':random.choice([0,90, 180, 270])}
 
-                    # Append
-                    if image.shape != self.img_shape:
-                        images.append(images[-1])
-                        labels[label_idx] = labels[label_idx-1]
-                        labels_slides[label_idx] = labels[label_idx-1]
-                    else:
-                        images.append(image)
-                        labels_slides.append(self.domains_dict_train[int(pathimg.split('/')[-1].split('_')[0])])
-                    label_idx+=1
-                except Exception as e:
-                    print('Failed reading img {idx}...'.format(idx=pathimg))
-                    print(e)
-                label_idx += 1
+                image = img_gen.apply_transform(x= image,transform_parameters=transform_parameters)
+                img_zoom_tuple = random.choice([(1,1),(1.1,1.1), (0.9,0.9), (0.8,0.8)])
+                image = random_zoom(image, img_zoom_tuple, row_axis=0, col_axis=1, channel_axis=2, fill_mode='reflect', cval=0.0, interpolation_order=4)
+                # Data augmentation
+                if self.augmentation_fn:
+                    image = self.augmentation_fn(image)
 
-            batch_x = np.stack(images).astype('float32')
-            batch_y = np.stack(labels).astype('float32')
-            batch_y_slides = np.stack(labels_slides).astype('float32')
-            if self.return_slide_num:
-                return batch_x, [self.encoder.fit_transform(batch_y), self.other_encoder.fit_transform(np.array(batch_y_slides).reshape(-1,1))]
-            elif self.only_domain:
-                return batch_x, self.other_encoder.fit_transform(np.array(batch_y_slides).reshape(-1,1))
-            else:
-                return batch_x, self.encoder.fit_transform(batch_y)
-        else: #We have to return a center(slide) balanced batch
-            label_idx = 0
-            label_class = 0
-            labels = []
-            imgs_per_class = self.batch_size*(1/len(self.domains_dict_train))
-            #print(imgs_per_class)
-            #labels = np.concatenate((np.zeros((self.batch_size//2,1)), np.ones((self.batch_size//2,1))),axis=0)
-            while len(images) != self.batch_size:
-                # checking the label
-                pathimg = random.sample(self.list_negative + self.list_positive,1)[0]
-                if pathimg.split('/')[-2] == 'mitosis':
-                    cur_y = 1
+                # Append
+                if image.shape != self.img_shape:
+                    images.append(images[-1])
+                    labels[label_idx] = labels[label_idx-1]
+                    labels_slides[label_idx] = labels[label_idx-1]
                 else:
-                    cur_y = 0
-                if len(images) >= self.batch_size//2:
-                    exp_y = 1
-                else:
-                    exp_y = 0
-                #print(pathimg)
-                cur_label = self.domains_dict_train[int(pathimg.split('/')[-1].split('_')[0])]
-                #print(label_class)
-                if (cur_label == label_class) and (cur_y == exp_y):
-                    try:
-                        image = load_image(pathimg) 
-                        if self.augmentation_fn:
-                            image = self.augmentation_fn(image)
-
-                        if image.shape != self.img_shape:
-                            images.append(images[-1])
-                            labels[label_idx] = labels[label_idx-1]
-                            labels_slides[label_idx] = labels[label_idx-1]
-                        else:
-                            images.append(image)
-                            labels.append(cur_y)
-                            paths.append(pathimg)
-                            labels_slides.append(cur_label)
-                            #print(int(np.stack(labels_slides))
-                            #print(int(np.stack(labels_slides[:,cur_label]).astype('float32').sum()))
-                            batch_y_slides = np.stack(labels_slides).astype('float32')
-                            #tmp_array_labels = self.other_encoder.fit_transform(np.array(batch_y_slides).reshape(-1,1)
-                            if labels_slides.count(label_class)== imgs_per_class:
-                                label_class += 1
-                        label_idx+=1
-                    except Exception as e:
-                        print('Failed reading img {idx}...'.format(idx=pathimg))
-                        print(e)
-
-            batch_x = np.stack(images).astype('float32')
-            batch_y = np.stack(labels).astype('float32').reshape(-1,1)
-            #print(batch_y)
-            batch_y_slides = np.stack(labels_slides).astype('float32')
-            if self.return_slide_num:
-                return batch_x, [self.encoder.fit_transform(batch_y), self.other_encoder.fit_transform(np.array(batch_y_slides).reshape(-1,1))]
-            elif self.only_domain:
-                return batch_x, self.other_encoder.fit_transform(np.array(batch_y_slides).reshape(-1,1))
-            else:
-                return batch_x, self.encoder.fit_transform(batch_y)
-
-
-##Building the generators for balanced negative-positive batches
+                    images.append(image)
+                    labels_slides.append(cur_label)
+                    batch_y_slides = np.stack(labels_slides).astype('float32')
+                label_idx+=1
+            except Exception as e:
+                print('Failed reading img {idx}...'.format(idx=pathimg))
+                print(e)
+            label_idx += 1
+        
+        batch_x = np.stack(images).astype('float32')
+        batch_y = np.stack(labels).astype('float32')
+        return batch_x, [self.encoder.fit_transform(batch_y), self.other_encoder.fit_transform(np.array(batch_y_slides).reshape(-1,1))]
+#        else:
 
 ##Building the generators for balanced negative-positive batches
 class simplePatchGeneratorDomains(object):
@@ -297,6 +272,13 @@ class simplePatchGeneratorDomains(object):
             if cur_label == label_class:
                 try:
                     image = load_image(pathimg) 
+                    img_gen = ImageDataGenerator()
+                    transform_parameters = {'flip_horizontal':bool(random.getrandbits(1)),'flip_vertical':bool(random.getrandbits(1)),
+                                            'theta':random.choice([0,90, 180, 270])}
+
+                    image = img_gen.apply_transform(x= image,transform_parameters=transform_parameters)
+                    img_zoom_tuple = random.choice([(1,1),(1.1,1.1), (0.9,0.9), (0.8,0.8)])
+
                     if self.augmentation_fn:
                         image = self.augmentation_fn(image)
 
@@ -321,8 +303,6 @@ class simplePatchGeneratorDomains(object):
         #print(batch_y)
         batch_y_slides = np.stack(labels_slides).astype('float32')
         return batch_x, [self.encoder.fit_transform(batch_y), self.other_encoder.fit_transform(np.array(batch_y_slides).reshape(-1,1))]
-
-
 
 def scale_range(img, min, max):
     img += -(np.min(img))
@@ -529,3 +509,284 @@ def compute_probs_sliding_window_v1(model_mitosis,ex_img):
             print("Computing probs for row " + str(i))
         end = time.time()
     return(np.array(probs_row))
+
+
+
+##Building the generators for balanced negative-positive batches
+class simplePatchGeneratorTCGA_domains(object):
+    def __init__(self, input_dir, batch_size, img_shape = (224,224,3), augmentation_fn=None):
+        print("Building generator for patches in " + input_dir)
+        # Params
+        self.input_dir = input_dir  # path to patches in glob format
+        self.batch_size = batch_size  # number of patches per batch
+        self.augmentation_fn = augmentation_fn  #augmentation function
+        self.img_shape = img_shape
+        self.list_positive = glob.glob(input_dir + 'GP3/*.png')
+        self.list_negative = glob.glob(input_dir + 'GP4/*.png')
+        self.encoder = OneHotEncoder(sparse=False,n_values=2)
+        self.other_encoder = OneHotEncoder(sparse=False,n_values=6)
+        self.n_samples = len(self.list_negative +self.list_positive)
+        self.n_batches = self.n_samples // self.batch_size
+        self.domains_dict_train = {'H9':0,'HI':1,'J4':2,'M7':3,'QU':4,'KK':5}
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return self.next()
+
+    def __len__(self):
+        # Provide length in number of batches
+        return self.n_batches
+
+    def next(self):
+        images = []
+        labels_slides = []
+        paths = []
+        label_idx = 0
+        label_class = 0
+        labels = []
+
+        # Build a mini-batch
+        imgs_per_class = int(self.batch_size*(1/len(self.domains_dict_train)))
+        #print(imgs_per_class)
+        #print(self.batch_size)
+        paths_negatives = random.sample(self.list_negative,self.batch_size//2) #self.df.loc[self.df['label'] == 0, :].sample(self.batch_size//2, replace = True)
+        paths_positives = random.sample(self.list_positive,self.batch_size//2) #self.df.loc[self.df['label'] == 0, :].sample(self.batch_size//2, replace = True)
+        #print(len(paths_negatives),len(paths_positives))
+        images = []        
+        #print(labels.shape)
+        while len(images) != self.batch_size:
+            #print(len(images), str(label_class))
+
+            pathimg = random.sample(self.list_negative + self.list_positive,1)[0]
+            if pathimg.split('/')[-2] == 'GP3':
+                cur_y = 1
+            else:
+                cur_y = 0
+            cur_label = self.domains_dict_train[pathimg.split('/')[-1].split('-')[1]]
+            if cur_label == (label_class%len(self.domains_dict_train)):
+                try:
+                    image = load_image(pathimg)
+                    image = center_cropping(image,target_size = self.img_shape[0])
+                    img_gen = ImageDataGenerator()
+                    transform_parameters = {'flip_horizontal':bool(random.getrandbits(1)),'flip_vertical':bool(random.getrandbits(1)),
+                                            'theta':random.choice([0,90, 180, 270])}
+
+                    image = img_gen.apply_transform(x= image,transform_parameters=transform_parameters)
+                    img_zoom_tuple = random.choice([(1,1),(1.1,1.1), (0.9,0.9), (0.8,0.8)])
+                    image = random_zoom(image, img_zoom_tuple, row_axis=0, col_axis=1, channel_axis=2, fill_mode='reflect', cval=0.0, interpolation_order=4)
+                    if self.augmentation_fn:
+                        image = self.augmentation_fn(image)
+                    if image.shape != self.img_shape:
+                        images.append(images[-1])
+                        labels[label_idx] = labels[label_idx-1]
+                        labels_slides[label_idx] = labels[label_idx-1]
+                    else:
+                        images.append(image)
+                        labels.append(cur_y)
+                        paths.append(pathimg)
+                        labels_slides.append(cur_label)
+                        batch_y_slides = np.stack(labels_slides).astype('float32')
+                        if labels_slides.count(label_class)== imgs_per_class:
+                            label_class += 1
+                    label_idx+=1
+                except Exception as e:
+                    print('Failed reading img {idx}...'.format(idx=pathimg))
+                    print(e)
+        batch_x = np.stack(images).astype('float32')
+        batch_y = np.stack(labels).astype('float32').reshape(-1,1)
+        #print(batch_y)
+        batch_y_slides = np.stack(labels_slides).astype('float32')
+        return batch_x, [self.encoder.fit_transform(batch_y), self.other_encoder.fit_transform(np.array(batch_y_slides).reshape(-1,1))]
+
+
+##Building the generators for balanced negative-positive batches
+class patchgen_tupac_only_domains(object):
+    def __init__(self, input_dir, batch_size, img_shape = (224,224,3), augmentation_fn=None):
+        print("Building generator for patches in " + input_dir)
+        # Params
+        self.input_dir = input_dir  # path to all patches 
+        self.batch_size = batch_size  # number of patches per batch
+        self.augmentation_fn = augmentation_fn  #augmentation function
+        self.img_shape = img_shape
+        self.list_internal = glob.glob(input_dir + '*.png')
+        self.list_external = glob.glob(input_dir + '*.png')
+        self.encoder = OneHotEncoder(sparse=False,n_values=2)
+        self.n_samples = len(self.list_external +self.list_internal)
+        self.n_batches = self.n_samples // self.batch_size
+        self.domains_dict_train = {1: 0, 2: 1, 3: 8, 4: 2, 5: 9, 6: 3, 7: 10, 8: 4, 9: 5, 11: 6, 12: 7, 13: 11,
+                                   14: 12, 15: 13, 16: 14, 17: 15, 18: 16, 19: 17, 21: 18, 22: 19, 23: 20,
+                                   24: 21, 25: 22, 27: 23, 28: 24, 29: 25, 30: 26, 31: 27, 32: 28,
+                                   33: 29, 34: 30, 36: 31, 37: 32, 39: 33, 40: 34, 41: 35, 42: 36,
+                                   43: 37, 44: 38, 45: 39, 46: 40, 47: 41, 49: 42, 50: 43, 51: 44,
+                                   52: 45, 54: 46, 55: 47, 56: 48, 57: 49, 58: 50, 59: 51, 60: 52,
+                                   61: 53, 62: 54, 63: 55, 64: 56, 65: 57, 66: 58, 67: 59, 68: 60,
+                                   69: 61, 70: 62, 71: 63, 72: 64, 73: 65}
+        self.other_encoder = OneHotEncoder(sparse=False,n_values=len(self.domains_dict_train))
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return self.next()
+
+    def __len__(self):
+        # Provide length in number of batches
+        return self.n_batches
+
+    def next(self):
+        images = []
+        labels_slides = []
+        paths = []
+        label_idx = 0
+        label_class = 0
+        labels = []
+        #print(self.img_shape)
+        # Build a mini-batch
+        imgs_per_class = int(self.batch_size*(1/len(self.domains_dict_train)))
+        #print(imgs_per_class)
+        #print(self.batch_size)
+        paths_negatives = random.sample(self.list_external,self.batch_size//2) #self.df.loc[self.df['label'] == 0, :].sample(self.batch_size//2, replace = True)
+        paths_positives = random.sample(self.list_internal,self.batch_size//2) #self.df.loc[self.df['label'] == 0, :].sample(self.batch_size//2, replace = True)
+        #print(len(paths_negatives),len(paths_positives))
+        images = []
+        #print(labels.shape)
+        while len(images) != self.batch_size:
+            #print(len(images), str(label_class))
+            cur_y = 1 # dumb mitosis label, not using for domain optimization
+
+            pathimg = random.sample(self.list_external + self.list_internal,1)[0]
+            prefx_patch = pathimg.split('/')[-1]
+            
+            domain = int(pathimg.split('/')[-1].split('_')[0])
+            cur_label = self.domains_dict_train[domain]           
+            try:
+                image = load_image(pathimg)
+                #image = center_cropping(image,target_size = self.img_shape[0])
+                img_gen = ImageDataGenerator()
+                transform_parameters = {'flip_horizontal':bool(random.getrandbits(1)),
+                                        'flip_vertical':bool(random.getrandbits(1)),
+                                        'theta':random.choice([0,90, 180, 270])}
+
+                image = img_gen.apply_transform(x= image,transform_parameters=transform_parameters)
+                img_zoom_tuple = random.choice([(1,1),(1.1,1.1), (0.9,0.9), (0.8,0.8)])
+                image = random_zoom(image, img_zoom_tuple, row_axis=0, col_axis=1, channel_axis=2, fill_mode='reflect', cval=0.0, interpolation_order=4)
+                if self.augmentation_fn:
+                    image = self.augmentation_fn(image)
+                if image.shape != self.img_shape:
+                    images.append(images[-1])
+                    labels[label_idx] = labels[label_idx-1]
+                    labels_slides[label_idx] = labels[label_idx-1]
+                else:
+                    images.append(image)
+                    labels.append(cur_y)
+                    paths.append(pathimg)
+                    labels_slides.append(cur_label)        
+                    batch_y_slides = np.stack(labels_slides).astype('float32')
+                    if labels_slides.count(label_class)== imgs_per_class:
+                        label_class += 1
+                label_idx+=1
+            except Exception as e:
+                print('Failed reading img {idx}...'.format(idx=pathimg))
+                print(e)
+        batch_x = np.stack(images).astype('float32')
+        batch_y = np.stack(labels).astype('float32').reshape(-1,1)
+        #print(batch_y)
+        batch_y_slides = np.stack(labels_slides).astype('float32')
+        return batch_x, [self.encoder.fit_transform(batch_y), self.other_encoder.fit_transform(np.array(batch_y_slides).reshape(-1,1))]
+##Building the generators for balanced negative-positive batches
+class patchgen_tcga_only_domains(object):
+    def __init__(self, input_dir, batch_size, img_shape = (224,224,3), augmentation_fn=None):
+        print("Building generator for patches in " + input_dir)
+        # Params
+        self.input_dir = input_dir  # path to all patches 
+        self.batch_size = batch_size  # number of patches per batch
+        self.augmentation_fn = augmentation_fn  #augmentation function
+        self.img_shape = img_shape
+        self.list_internal = glob.glob(input_dir + '*.png') 
+        self.list_external = glob.glob(input_dir + '*.jpg')
+        self.encoder = OneHotEncoder(sparse=False,n_values=2)
+        self.n_samples = len(self.list_external +self.list_internal)
+        self.n_batches = self.n_samples // self.batch_size
+        self.domains_dict_train = {'H9':0,'HI':1,'J4':2,'M7':3,'QU':4,'KK':5, 
+                                   '2A':6, 'EJ':7, 'WW':8, 'XJ':9, 'XK':10,
+                                   'ZT80':11, 'V1':12,'FC':13,'VP':14,'G9':15} 
+        self.other_encoder = OneHotEncoder(sparse=False,n_values=len(self.domains_dict_train))
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return self.next()
+
+    def __len__(self):
+        # Provide length in number of batches
+        return self.n_batches
+
+    def next(self):
+        images = []
+        labels_slides = []
+        paths = []
+        label_idx = 0
+        label_class = 0
+        labels = []
+
+        # Build a mini-batch
+        imgs_per_class = int(self.batch_size*(1/len(self.domains_dict_train)))
+        #print(imgs_per_class)
+        #print(self.batch_size)
+        paths_negatives = random.sample(self.list_external,self.batch_size//2) #self.df.loc[self.df['label'] == 0, :].sample(self.batch_size//2, replace = True)
+        paths_positives = random.sample(self.list_internal,self.batch_size//2) #self.df.loc[self.df['label'] == 0, :].sample(self.batch_size//2, replace = True)
+        #print(len(paths_negatives),len(paths_positives))
+        images = []        
+        #print(labels.shape)
+        while len(images) != self.batch_size:
+            #print(len(images), str(label_class))
+
+            pathimg = random.sample(self.list_external + self.list_internal,1)[0]
+            if pathimg.split('/')[-2] == 'GP3':
+                cur_y = 1
+            else:
+                cur_y = 0
+            prefx_patch = pathimg.split('/')[-1]
+            
+            if pathimg in self.list_internal:
+                cur_label = self.domains_dict_train[pathimg.split('/')[-1].split('-')[1]]
+            else:
+                cur_label = self.domains_dict_train[pathimg.split('/')[-1].split('_')[0]]
+            #print('label associated:' + pathimg.split('/')[-1])
+            #print(cur_label)
+            if cur_label == (label_class%len(self.domains_dict_train)):
+                try:
+                    image = load_image(pathimg)
+                    image = center_cropping(image,target_size = self.img_shape[0])
+                    img_gen = ImageDataGenerator()
+                    transform_parameters = {'flip_horizontal':bool(random.getrandbits(1)),'flip_vertical':bool(random.getrandbits(1)),
+                                            'theta':random.choice([0,90, 180, 270])}
+
+                    image = img_gen.apply_transform(x= image,transform_parameters=transform_parameters)
+                    img_zoom_tuple = random.choice([(1,1),(1.1,1.1), (0.9,0.9), (0.8,0.8)])
+                    image = random_zoom(image, img_zoom_tuple, row_axis=0, col_axis=1, channel_axis=2, fill_mode='reflect', cval=0.0, interpolation_order=4)
+                    if self.augmentation_fn:
+                        image = self.augmentation_fn(image)
+                    if image.shape != self.img_shape:
+                        images.append(images[-1])
+                        labels[label_idx] = labels[label_idx-1]
+                        labels_slides[label_idx] = labels[label_idx-1]
+                    else:
+                        images.append(image)
+                        labels.append(cur_y)
+                        paths.append(pathimg)
+                        labels_slides.append(cur_label)
+                        batch_y_slides = np.stack(labels_slides).astype('float32')
+                        if labels_slides.count(label_class)== imgs_per_class:
+                            label_class += 1
+                    label_idx+=1
+                except Exception as e:
+                    print('Failed reading img {idx}...'.format(idx=pathimg))
+                    print(e)
+        batch_x = np.stack(images).astype('float32')
+        batch_y = np.stack(labels).astype('float32').reshape(-1,1)
+        #print(batch_y)
+        batch_y_slides = np.stack(labels_slides).astype('float32')
+        return batch_x, [self.encoder.fit_transform(batch_y), self.other_encoder.fit_transform(np.array(batch_y_slides).reshape(-1,1))]
