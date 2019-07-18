@@ -12,7 +12,3 @@ Mitosis detection in TUPAC:
 Gleason grading using the Zurich prostate TMA dataset and TCGA diagnostic WSI:
 * Have in your local path the ([TMA images folder](https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/OCYCMP)) 
 * Separate the patches folder using patches_partitions.txt
-
-Multi-organ nuclei segmentation of Kumar patch dataset:
-* Have in your local storage the nuclei images with their respective nuclei masks ([Multi-organ nuclei segmentation](https://monuseg.grand-challenge.org/Data/))
-
