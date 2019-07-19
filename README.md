@@ -8,7 +8,11 @@ Mitosis detection in TUPAC:
 * Have in a local path the ([TUPAC dataset](http://tupac.tue-image.nl/node/3))
 * Create the patches using the coordinates located in datasets_utils/tupac
 
-Gleason grading using the Zurich prostate TMA dataset and patches from diagnostic WSI of TCGA:
+Gleason grading using the subset of Zürich prostate TMA dataset (subset from *) and patches from diagnostic WSI of TCGA:
 * Download the [dataset](https://wetransfer.com/downloads/b33c6eda5df597b2fe375a2162be535f20190719142214/25afc2d4546196eb08825d48316c0c8720190719142214/d04b56) (if you have problems downloading it, drop me an email to juan.otalora [AT] etu.unige.ch)
 
 * Run either baseline.py or dann_experiment.py
+
+
+
+*Arvaniti, Eirini; Fricker, Kim; Moret, Michael; Rupp, Niels; Hermanns, Thomas; Fankhauser, Christian; Wey, Norbert; Wild, Peter; Rüschoff, Jan Hendrik; Claassen, Manfred, 2018, "Replication Data for: Automated Gleason grading of prostate cancer tissue microarrays via deep learning.", https://doi.org/10.7910/DVN/OCYCMP, Harvard Dataverse, V1
