@@ -2,6 +2,11 @@ This project investigates the interplay between color augmentation and adversari
 
 For this purpose, we design a domain adversarial framework in which color augmentation is used in conjunction with domain invariant training of deep convolutional networks. We test our approach in two open access datasets and provide the steps and code to reproduce each result reported in the paper.
 
+If you find this code useful, consider citing the accompanying article:
+Otálora, Sebastian, et al. "Staining invariant features for improving generalization of deep convolutional neural networks in computational pathology." Frontiers in Bioengineering and Biotechnology 7 (2019): 198.
+
+
+
 Here are the steps to reproduce each set of experiments:
 
 Mitosis detection in TUPAC:
